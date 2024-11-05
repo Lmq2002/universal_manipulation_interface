@@ -19,6 +19,7 @@ from tqdm import tqdm
 from py_gpmf_parser.gopro_telemetry_extractor import GoProTelemetryExtractor
 
 # py_gpmf_parser生成imu_data.json
+#
 def process_video(video_dir):
     stdout_path = video_dir.joinpath("extract_gopro_imu_stdout.txt")
     stderr_path = video_dir.joinpath("extractor_gopro_imu_stderr.txt")
