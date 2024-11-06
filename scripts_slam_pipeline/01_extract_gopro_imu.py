@@ -16,6 +16,27 @@ import subprocess
 import multiprocessing
 import concurrent.futures
 from tqdm import tqdm
+from py_gpmf_parser.gopro_telemetry_extractor import GoProTelemetryExtractor
+
+# py_gpmf_parser生成imu_data.json
+def process_video(video_dir):
+    stdout_path = video_dir.joinpath("extract_gopro_imu_stdout.txt")
+    stderr_path = video_dir.joinpath("extractor_gopro_imu_stderr.txt")
+    video_path = video_dir.joinpath("raw_video.mp4")
+    json_path = video_dir.joinpath("imu_data.json")
+    try:
+        if not video_path.is_file():
+            print(f"Video file {video_path} not found")
+            return
+
+        extractor = GoProTelemetryExtractor(video_path)
+        extractor.extractor_data_to_json(json_path,
+                                         ["ACCL", "GYRO", "GPS5", "GRAV", "MAGN", "CORI", "IORI"])
+        extractor.close_source()
+
+    except Exception as e:
+        with open(stderr_path, 'a') as err_file:
+            err_file.write(f"Error processing {video_path}: {e}")
 
 # %%
 @click.command()
@@ -28,17 +49,17 @@ def main(docker_image, num_workers, no_docker_pull, session_dir):
         num_workers = multiprocessing.cpu_count()
 
     # pull docker
-    if not no_docker_pull:
-        print(f"Pulling docker image {docker_image}")
-        cmd = [
-            'docker',
-            'pull',
-            docker_image
-        ]
-        p = subprocess.run(cmd)
-        if p.returncode != 0:
-            print("Docker pull failed!")
-            exit(1)
+    # if not no_docker_pull:
+    #     print(f"Pulling docker image {docker_image}")
+    #     cmd = [
+    #         'docker',
+    #         'pull',
+    #         docker_image
+    #     ]
+    #     p = subprocess.run(cmd)
+    #     if p.returncode != 0:
+    #         print("Docker pull failed!")
+    #         exit(1)
 
     for session in session_dir:
         input_dir = pathlib.Path(os.path.expanduser(session)).joinpath('demos')
@@ -54,26 +75,15 @@ def main(docker_image, num_workers, no_docker_pull, session_dir):
                     if video_dir.joinpath('imu_data.json').is_file():
                         print(f"imu_data.json already exists, skipping {video_dir.name}")
                         continue
-                    mount_target = pathlib.Path('/data')
 
-                    video_path = mount_target.joinpath('raw_video.mp4')
-                    json_path = mount_target.joinpath('imu_data.json')
-
-                    # run imu extractor
-                    cmd = [
-                        'docker',
-                        'run',
-                        '--rm', # delete after finish
-                        '--volume', str(video_dir) + ':' + '/data',
-                        docker_image,
-                        'node',
-                        '/OpenImuCameraCalibrator/javascript/extract_metadata_single.js',
-                        str(video_path),
-                        str(json_path)
-                    ]
-
-                    stdout_path = video_dir.joinpath('extract_gopro_imu_stdout.txt')
-                    stderr_path = video_dir.joinpath('extract_gopro_imu_stderr.txt')
+                    # mount_target = pathlib.Path('/data')
+                    # video_path = video_dir.joinpath('raw_video.mp4')
+                    # json_path = video_dir.joinpath('imu_data.json')
+                    #
+                    #
+                    #
+                    # stdout_path = video_dir.joinpath('extract_gopro_imu_stdout.txt')
+                    # stderr_path = video_dir.joinpath('extract_gopro_imu_stderr.txt')
 
                     if len(futures) >= num_workers:
                         # limit number of inflight tasks
@@ -82,11 +92,9 @@ def main(docker_image, num_workers, no_docker_pull, session_dir):
                         pbar.update(len(completed))
 
                     futures.add(executor.submit(
-                        lambda x, stdo, stde: subprocess.run(x, 
-                            cwd=str(video_dir),
-                            stdout=stdo.open('w'),
-                            stderr=stde.open('w')), 
-                        cmd, stdout_path, stderr_path))
+                        lambda x: process_video(x),
+                        video_dir))
+
                     # print(' '.join(cmd))
 
                 completed, futures = concurrent.futures.wait(futures)
